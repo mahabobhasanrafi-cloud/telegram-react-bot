@@ -1,17 +1,20 @@
 # Telegram Auto-React Bot Fleet
 
-Bots that react to every new post in your channel/group instantly,
-with a list of emojis you choose. One service runs as many bots as you
-want — each bot reacts separately, so a post gets one set of reactions
-per bot. No external Python packages needed (stdlib only).
+Bots that react to every new post in your channel/group instantly.
+One service runs as many bots as you want — each bot reacts with ONE
+emoji, a different one per bot (bots can only set a single reaction
+per message), so a post collects a row of different emojis. No external
+Python packages needed (stdlib only).
 
 ## How it works
 
 1. Telegram delivers each new post to this server as a webhook update,
    one delivery per bot, at `/hook/<bot-id>`.
-2. Each bot calls Bot API `setMessageReaction` with your emoji list.
-3. If a chat restricts reactions, the bot filters to that chat's
-   allowed reactions (from `getChat`).
+2. Each bot calls Bot API `setMessageReaction` with its own single
+   emoji from your list (different per bot, by fleet position).
+3. If a chat restricts reactions, each bot picks from that chat's
+   allowed reactions (from `getChat`). If its emoji is rejected, it
+   tries the next one and remembers the working emoji for that chat.
 4. Each bot's webhook carries its own secret token (generated at boot),
    verified on every update, so forged updates are rejected.
 

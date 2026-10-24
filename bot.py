@@ -4,14 +4,18 @@ One service can run MANY bots at once: set BOT_TOKENS to a comma-separated
 list of tokens from @BotFather. Each bot gets its own webhook at
 /hook/<bot-id> with its own secret token (generated at boot and verified
 on every incoming update), and each reacts to new channel posts / group
-messages with the emojis in REACTIONS (via Bot API setMessageReaction).
+messages with ONE emoji from REACTIONS — a different emoji per bot, since
+bots can only set a single reaction per message.
 
 How it works:
 - Telegram sends every new channel post / group message to this server
   as a webhook update, one delivery per bot.
-- Each bot immediately reacts to that message with the emojis in
-  REACTIONS. If a chat restricts which reactions are allowed, the bot
-  filters the list to that chat's available reactions (from getChat).
+- Each bot immediately reacts to that message with ONE emoji from
+  REACTIONS: bots can only set a single reaction per message, so each
+  bot takes a different emoji (by its position in the fleet). If a chat
+  restricts which reactions are allowed, the bot picks from that chat's
+  available reactions (from getChat). If its emoji is rejected, it walks
+  forward to the next working emoji and remembers it for that chat.
 
 Setup:
 1. Telegram -> @BotFather -> /newbot -> pick a name and username -> you
@@ -62,8 +66,9 @@ REACTIONS = [e for e in os.environ.get("REACTIONS", DEFAULT_REACTIONS).split(","
 class Bot:
     """One Telegram bot: its token, webhook secret, and reaction logic."""
 
-    def __init__(self, token):
+    def __init__(self, token, index):
         self.token = token
+        self.index = index
         # Bot id is the numeric part before the colon; safe to log/use in URLs.
         self.bot_id = token.split(":", 1)[0] if ":" in token else token
         # Fresh secret every boot; registered with Telegram via setWebhook
@@ -71,9 +76,9 @@ class Bot:
         self.secret = secrets.token_urlsafe(24)
         # chat_id -> set of allowed emojis (None = no restriction info, use all)
         self._chat_reactions = {}
-        # chat_id -> emojis proven valid for this chat (REACTION_INVALID
-        # fallback discovery; once learned, one call per post suffices)
-        self._valid_emojis = {}
+        # chat_id -> this bot's working emoji for the chat (learned on
+        # first post; later posts reuse it in a single call)
+        self._my_emoji = {}
 
     def api_call(self, method, payload):
         """Call one Bot API method.
@@ -132,29 +137,6 @@ class Bot:
             return True, ""
         return False, (res or {}).get("description", "")
 
-    def discover_valid_emojis(self, chat_id, message_id, emojis):
-        """Greedily find which emojis this chat accepts, then cache them.
-
-        setMessageReaction replaces the bot's whole reaction list, so we
-        grow the list one emoji at a time: an emoji Telegram rejects is
-        skipped, the rest stay. Only caches when no non-reaction error
-        interrupted the discovery.
-        """
-        good = []
-        clean = True
-        for emoji in emojis:
-            ok, desc = self.set_reactions(chat_id, message_id, good + [emoji])
-            if ok:
-                good.append(emoji)
-            elif "REACTION_INVALID" in desc:
-                continue
-            else:
-                clean = False
-                break
-        if clean and good:
-            self._valid_emojis[chat_id] = good
-        return good
-
     def handle_update(self, update):
         # Channel posts arrive as channel_post, group messages as message.
         msg = update.get("channel_post") or update.get("message")
@@ -165,29 +147,30 @@ class Bot:
             return
         chat_id = msg["chat"]["id"]
         message_id = msg["message_id"]
-        if chat_id in self._valid_emojis:
-            emojis = self._valid_emojis[chat_id]
-            if not emojis:
-                return
-            ok, desc = self.set_reactions(chat_id, message_id, emojis)
-            if not ok and "REACTION_INVALID" in desc:
-                # Chat settings changed; re-discover from the full list.
-                self.discover_valid_emojis(chat_id, message_id, REACTIONS)
-            return
         allowed = self.allowed_reactions(chat_id)
-        emojis = [e for e in REACTIONS if allowed is None or e in allowed]
-        if not emojis:
+        candidates = [e for e in REACTIONS if allowed is None or e in allowed]
+        if not candidates:
             return
-        ok, desc = self.set_reactions(chat_id, message_id, emojis)
-        if ok:
-            return
-        if "REACTION_INVALID" in desc:
-            self.discover_valid_emojis(chat_id, message_id, emojis)
+        # Bots can only set ONE reaction per message, so each bot takes a
+        # different emoji (by its position in the fleet). Start from the
+        # emoji that worked last time in this chat, if there is one.
+        start = self.index % len(candidates)
+        if chat_id in self._my_emoji and self._my_emoji[chat_id] in candidates:
+            start = candidates.index(self._my_emoji[chat_id])
+        for offset in range(len(candidates)):
+            emoji = candidates[(start + offset) % len(candidates)]
+            ok, desc = self.set_reactions(chat_id, message_id, [emoji])
+            if ok:
+                self._my_emoji[chat_id] = emoji
+                return
+            if "REACTION_INVALID" not in desc:
+                return  # some other error; don't spam retries
+        return
 
 
 BOTS = {}
-for _tok in _load_tokens():
-    _bot = Bot(_tok)
+for _i, _tok in enumerate(_load_tokens()):
+    _bot = Bot(_tok, _i)
     BOTS[_bot.bot_id] = _bot
 
 
