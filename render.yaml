@@ -5,9 +5,10 @@ services:
     plan: free
     dockerfilePath: ./Dockerfile
     healthCheckPath: /
-    # NOTE: BOT_TOKEN is intentionally NOT listed here. Set it in the
+    # NOTE: BOT_TOKENS is intentionally NOT listed here. Set it in the
     # Render dashboard (Service -> Environment -> Add Environment
-    # Variable) so the token never lives in the repo.
+    # Variable) so tokens never live in the repo. BOT_TOKENS is a
+    # comma-separated list; one service runs all the bots.
     envVars:
       - key: REACTIONS
         value: "😭,🙏,😂,🤣,🙂,🙄,🤭,🥹,😅,🤔,🥲,👍,🥰,❤️,😁,😍,😡,😔,😌,😊,🥺"

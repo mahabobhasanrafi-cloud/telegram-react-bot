@@ -1,15 +1,19 @@
-# Telegram Auto-React Bot
+# Telegram Auto-React Bot Fleet
 
-A bot that reacts to every new post in your channel/group instantly,
-with a list of emojis you choose. No external Python packages needed
-(stdlib only).
+Bots that react to every new post in your channel/group instantly,
+with a list of emojis you choose. One service runs as many bots as you
+want — each bot reacts separately, so a post gets one set of reactions
+per bot. No external Python packages needed (stdlib only).
 
 ## How it works
 
-1. Telegram delivers each new post to this server as a webhook update.
-2. `bot.py` calls Bot API `setMessageReaction` with your emoji list.
+1. Telegram delivers each new post to this server as a webhook update,
+   one delivery per bot, at `/hook/<bot-id>`.
+2. Each bot calls Bot API `setMessageReaction` with your emoji list.
 3. If a chat restricts reactions, the bot filters to that chat's
    allowed reactions (from `getChat`).
+4. Each bot's webhook carries its own secret token (generated at boot),
+   verified on every update, so forged updates are rejected.
 
 ## Deploy (Render free tier)
 
@@ -17,18 +21,19 @@ with a list of emojis you choose. No external Python packages needed
 2. Render dashboard -> New -> Web Service -> connect the repo.
 3. Environment: Docker, Plan: Free.
 4. After creation, go to Service -> Environment -> Add Environment
-   Variable: Key `BOT_TOKEN`, Value = token from @BotFather. Save
-   (the service restarts automatically).
-5. The bot sets its webhook itself on boot using Render's
-   `RENDER_EXTERNAL_URL` (or set `WEBHOOK_URL` yourself, e.g.
-   `https://your-service.onrender.com/webhook`).
+   Variable: Key `BOT_TOKENS`, Value = your tokens from @BotFather,
+   comma-separated, no spaces. Save (the service restarts
+   automatically). For a single bot, `BOT_TOKEN` also works.
+5. Each bot sets its webhook itself on boot using Render's
+   `RENDER_EXTERNAL_URL` (or set `WEBHOOK_BASE` yourself, e.g.
+   `https://your-service.onrender.com`).
 
-## Make it react
+## Make them react
 
-- **Channel:** add the bot as an ADMIN of the channel.
-- **Group:** make the bot an admin, OR disable privacy mode via
+- **Channel:** add EVERY bot as an ADMIN of the channel.
+- **Group:** make each bot an admin, OR disable privacy mode via
   @BotFather (`/setprivacy` -> Disable) so it sees every message.
-- Post something -> the bot reacts within seconds.
+- Post something -> all the bots react within seconds.
 
 ## Change the reactions
 
@@ -42,8 +47,9 @@ reaction — ❤️ is. The default list already excludes those two.
 - Render free services sleep when idle: the first reaction after a
   quiet period can take ~30-60s (webhook wake-up). After that,
   reactions arrive within seconds while the service is warm.
-- The bot reacts as ONE account: one set of reactions per post.
-- Only the token holder controls the bot: keep BOT_TOKEN secret.
-  Never commit it to the repo or paste it in chat.
+- Each bot reacts as its own account: a post gets one set of reactions
+  per bot. Every bot must be an admin of the channel to react there.
+- Only the token holder controls a bot: keep BOT_TOKENS secret.
+  Never commit tokens to the repo or paste them in chat.
 - Only react in chats you own/manage, and only download/react to
   content you have the right to use.
