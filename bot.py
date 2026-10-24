@@ -71,9 +71,17 @@ class Bot:
         self.secret = secrets.token_urlsafe(24)
         # chat_id -> set of allowed emojis (None = no restriction info, use all)
         self._chat_reactions = {}
+        # chat_id -> emojis proven valid for this chat (REACTION_INVALID
+        # fallback discovery; once learned, one call per post suffices)
+        self._valid_emojis = {}
 
     def api_call(self, method, payload):
-        """Call one Bot API method. Returns parsed JSON or None on failure."""
+        """Call one Bot API method.
+
+        Returns the parsed JSON response, including error bodies
+        (ok=false with a description) so callers can react to specific
+        errors. Returns None only on network trouble.
+        """
         req = urllib.request.Request(
             "https://api.telegram.org/bot" + self.token + "/" + method,
             data=json.dumps(payload).encode(),
@@ -84,10 +92,11 @@ class Bot:
                 return json.loads(resp.read().decode())
         except urllib.error.HTTPError as err:
             try:
-                print("bot", self.bot_id, "API error", method, err.read().decode()[:200], flush=True)
+                body = err.read().decode()
+                print("bot", self.bot_id, "API error", method, body[:200], flush=True)
+                return json.loads(body)
             except Exception:
-                pass
-            return None
+                return {"ok": False}
         except Exception as exc:  # network trouble etc.
             print("bot", self.bot_id, "API fail", method, exc, flush=True)
             return None
@@ -109,6 +118,43 @@ class Bot:
         self._chat_reactions[chat_id] = allowed
         return allowed
 
+    def set_reactions(self, chat_id, message_id, emojis):
+        """Try to set reactions. Returns (ok, description)."""
+        res = self.api_call(
+            "setMessageReaction",
+            {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "reaction": [{"type": "emoji", "emoji": e} for e in emojis],
+            },
+        )
+        if res and res.get("ok"):
+            return True, ""
+        return False, (res or {}).get("description", "")
+
+    def discover_valid_emojis(self, chat_id, message_id, emojis):
+        """Greedily find which emojis this chat accepts, then cache them.
+
+        setMessageReaction replaces the bot's whole reaction list, so we
+        grow the list one emoji at a time: an emoji Telegram rejects is
+        skipped, the rest stay. Only caches when no non-reaction error
+        interrupted the discovery.
+        """
+        good = []
+        clean = True
+        for emoji in emojis:
+            ok, desc = self.set_reactions(chat_id, message_id, good + [emoji])
+            if ok:
+                good.append(emoji)
+            elif "REACTION_INVALID" in desc:
+                continue
+            else:
+                clean = False
+                break
+        if clean and good:
+            self._valid_emojis[chat_id] = good
+        return good
+
     def handle_update(self, update):
         # Channel posts arrive as channel_post, group messages as message.
         msg = update.get("channel_post") or update.get("message")
@@ -119,18 +165,24 @@ class Bot:
             return
         chat_id = msg["chat"]["id"]
         message_id = msg["message_id"]
+        if chat_id in self._valid_emojis:
+            emojis = self._valid_emojis[chat_id]
+            if not emojis:
+                return
+            ok, desc = self.set_reactions(chat_id, message_id, emojis)
+            if not ok and "REACTION_INVALID" in desc:
+                # Chat settings changed; re-discover from the full list.
+                self.discover_valid_emojis(chat_id, message_id, REACTIONS)
+            return
         allowed = self.allowed_reactions(chat_id)
         emojis = [e for e in REACTIONS if allowed is None or e in allowed]
         if not emojis:
             return
-        self.api_call(
-            "setMessageReaction",
-            {
-                "chat_id": chat_id,
-                "message_id": message_id,
-                "reaction": [{"type": "emoji", "emoji": e} for e in emojis],
-            },
-        )
+        ok, desc = self.set_reactions(chat_id, message_id, emojis)
+        if ok:
+            return
+        if "REACTION_INVALID" in desc:
+            self.discover_valid_emojis(chat_id, message_id, emojis)
 
 
 BOTS = {}
