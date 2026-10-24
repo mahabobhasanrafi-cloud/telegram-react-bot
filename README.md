@@ -1,0 +1,49 @@
+# Telegram Auto-React Bot
+
+A bot that reacts to every new post in your channel/group instantly,
+with a list of emojis you choose. No external Python packages needed
+(stdlib only).
+
+## How it works
+
+1. Telegram delivers each new post to this server as a webhook update.
+2. `bot.py` calls Bot API `setMessageReaction` with your emoji list.
+3. If a chat restricts reactions, the bot filters to that chat's
+   allowed reactions (from `getChat`).
+
+## Deploy (Render free tier)
+
+1. Push this folder to a GitHub repo.
+2. Render dashboard -> New -> Web Service -> connect the repo.
+3. Environment: Docker, Plan: Free.
+4. After creation, go to Service -> Environment -> Add Environment
+   Variable: Key `BOT_TOKEN`, Value = token from @BotFather. Save
+   (the service restarts automatically).
+5. The bot sets its webhook itself on boot using Render's
+   `RENDER_EXTERNAL_URL` (or set `WEBHOOK_URL` yourself, e.g.
+   `https://your-service.onrender.com/webhook`).
+
+## Make it react
+
+- **Channel:** add the bot as an ADMIN of the channel.
+- **Group:** make the bot an admin, OR disable privacy mode via
+  @BotFather (`/setprivacy` -> Disable) so it sees every message.
+- Post something -> the bot reacts within seconds.
+
+## Change the reactions
+
+Set the `REACTIONS` env var to a comma-separated emoji list and
+restart the service. Two notes: Telegram may not offer very new
+emojis (e.g. 🫩) as reactions, and the ♥️ suit is not a Telegram
+reaction — ❤️ is. The default list already excludes those two.
+
+## Limits (honest)
+
+- Render free services sleep when idle: the first reaction after a
+  quiet period can take ~30-60s (webhook wake-up). After that,
+  reactions arrive within seconds while the service is warm.
+- The bot reacts as ONE account: one set of reactions per post.
+- Only the token holder controls the bot: keep BOT_TOKEN secret.
+  Never commit it to the repo or paste it in chat.
+- Only react in chats you own/manage, and only download/react to
+  content you have the right to use.

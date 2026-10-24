@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: telegram-react-bot
+    env: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /
+    # NOTE: BOT_TOKEN is intentionally NOT listed here. Set it in the
+    # Render dashboard (Service -> Environment -> Add Environment
+    # Variable) so the token never lives in the repo.
+    envVars:
+      - key: REACTIONS
+        value: "😭,🙏,😂,🤣,🙂,🙄,🤭,🥹,😅,🤔,🥲,👍,🥰,❤️,😁,😍,😡,😔,😌,😊,🥺"
